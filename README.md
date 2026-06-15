@@ -95,20 +95,37 @@ tutorial/
 ---
 
 ## 🎨 Example Result Showcase
+### Tutorial: pi-dynamic-workflow
 
-Below is an example of the automatically assembled `00_index.md` showing the structured main summary and flow schema:
+The **pi-dynamic-workflow** project is an on-the-fly execution and tracing environment built for the Pi Agent. It enables the dynamic generation, execution, and visualization of complex AI agent workflows using the **PocketFlow** framework. 
 
-### # Tutorial: PocketFlow
-*PocketFlow is a lightweight, 100-line LLM orchestration pipeline built to let developers organize agents and nodes sequentially inside stateful, resilient micro-workflows.*
+By utilizing a lightweight *Dynamic Sandbox Harness* powered by the fast `uv` toolchain, it allows agents to run structured multi-step pipelines containing **Structured Nodes** (for guaranteed schema extraction) and **Human-in-the-Loop (HITL)** checkpoints. Standardized telemetry and execution metrics are automatically captured via thread-safe, decoupled **Langfuse Tracing** without crashing when credentials are absent.
+
 
 ```mermaid
 flowchart TD
-    A0["SharedState"]
-    A1["BaseNode"]
-    A2["FlowOrchestrator"]
-    A0 -- "Communicates" --> A1
-    A1 -- "Executes" --> A2
+    A0["The Node (Execution Unit)
+"]
+    A1["The Flow (Graph Orchestrator)
+"]
+    A2["Shared State (Communication Channel)
+"]
+    A3["Dynamic Sandbox Harness
+"]
+    A4["Automated Langfuse Tracing
+"]
+    A5["Structured Nodes (Schema Enforcement)
+"]
+    A6["Human-in-the-Loop (HITL) Loops
+"]
+    A1 -- "Orchestrates execution of" --> A0
+    A0 -- "Reads/writes state to" --> A2
+    A3 -- "Sandboxes and runs" --> A1
+    A4 -- "Traces and monitors" --> A1
+    A5 -- "Extends with schemas" --> A0
+    A6 -- "Pauses execution of" --> A0
 ```
+
 
 ## 📄 License
 
