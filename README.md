@@ -97,6 +97,8 @@ tutorial/
 ## 🎨 Example Result Showcase
 ### Tutorial: pi-dynamic-workflow
 
+https://github.com/mbenetti/pi-dynamic-workflow.git
+
 The **pi-dynamic-workflow** project is an on-the-fly execution and tracing environment built for the Pi Agent. It enables the dynamic generation, execution, and visualization of complex AI agent workflows using the **PocketFlow** framework. 
 
 By utilizing a lightweight *Dynamic Sandbox Harness* powered by the fast `uv` toolchain, it allows agents to run structured multi-step pipelines containing **Structured Nodes** (for guaranteed schema extraction) and **Human-in-the-Loop (HITL)** checkpoints. Standardized telemetry and execution metrics are automatically captured via thread-safe, decoupled **Langfuse Tracing** without crashing when credentials are absent.
