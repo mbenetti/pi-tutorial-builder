@@ -63,10 +63,10 @@ Then, execute the `/tutorial` slash-command directly inside the chat interface:
 
 ```text
 # Generate a tutorial from a remote public GitHub repository
-/tutorial https://github.com/The-Pocket/PocketFlow --max-abstractions 5 --language english
+/tutorial https://github.com/mbenetti/pi-dynamic-workflow.git --max-abstractions 5 --language english
 
 # Generate a tutorial from your current local directory
-/tutorial ./ --max-abstractions 7 --language Spanish --output ./my-tutorial/
+/tutorial ./Your_repo --max-abstractions 7 --language Spanish --output ./my_repo/
 ```
 
 ### Options
