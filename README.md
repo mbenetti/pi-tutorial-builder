@@ -85,7 +85,7 @@ Then, execute the `/tutorial` slash-command directly inside the chat interface:
 The output directory compiles into a clean, book-like sequence of numbered, readable Markdown documents:
 
 ```text
-tutorial/your_repoß
+tutorial/your_repo
 ├── 00_index.md                # Flow diagrams, project summary list, and index of files
 ├── 01_flow_orchestration.md   # Chapter 1: Foundations
 ├── 02_computational_nodes.md  # Chapter 2: Nodes walk-throughs & analogies
