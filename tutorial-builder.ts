@@ -241,7 +241,7 @@ export default function (pi: ExtensionAPI) {
 
 			for (let i = 1; i < parsedArgs.length; i++) {
 				if (parsedArgs[i] === "--max-abstractions" && parsedArgs[i+1]) {
-					maxAbstractions = parseInt(parsedArgs[i+1], i+1);
+					maxAbstractions = parseInt(parsedArgs[i+1], 10);
 					i++;
 				} else if (parsedArgs[i] === "--language" && parsedArgs[i+1]) {
 					language = parsedArgs[i+1];
@@ -267,7 +267,6 @@ export default function (pi: ExtensionAPI) {
 					done();
 				};
 
-				// Start processing asynchronously so we can return the loader widget immediately to be rendered by key handlers/TUI loop
 				const runPipeline = async () => {
 					try {
 						let tempDir: string | undefined;
@@ -402,7 +401,7 @@ Output ONLY a single valid JSON object inside \`\`\`json\`\`\` code tags with th
     }
   ]
 }
-\`\`\s
+\`\`\`
 
 IMPORTANT: Both "summary" and relationship "label" fields must be fully generated in **${language}**.
 Keep the relationship "label" strictly very short (1 to 3 words maximum, e.g., "Manages", "Inherits", "Spawns", "Triggers", "Uses"). This ensures diagram labels do not overlap!
@@ -427,11 +426,16 @@ Ensure to output only valid JSON.`;
 						const relationshipsRaw = extractJsonBlock<any>(rawRelationships);
 						const relationships: RelationshipsData = {
 							summary: relationshipsRaw.summary || "",
-							details: (relationshipsRaw.relationships || []).map((rel: any) => ({
-								from: parseInt(rel.from_abstraction, 10) || 0,
-								to: parseInt(rel.to_abstraction, 10) || 0,
-								label: rel.label || "Uses"
-							}))
+							details: (relationshipsRaw.relationships || [])
+								.map((rel: any) => ({
+									from: parseInt(rel.from_abstraction, 10),
+									to: parseInt(rel.to_abstraction, 10),
+									label: rel.label || "Uses"
+								}))
+								.filter((rel: any) =>
+									!isNaN(rel.from) && rel.from >= 0 && rel.from < abstractions.length &&
+									!isNaN(rel.to) && rel.to >= 0 && rel.to < abstractions.length
+								)
 						};
 
 						// 3. OrderChapters
@@ -470,7 +474,18 @@ Output ONLY a JSON array of numbers inside \`\`\`json\`\`\` tags reflecting the 
 						);
 
 						const orderRaw = extractJsonBlock<number[]>(rawOrder);
-						const chapterOrder = Array.isArray(orderRaw) ? orderRaw : Array.from({ length: abstractions.length }, (_, i) => i);
+						let chapterOrder = Array.isArray(orderRaw) ? orderRaw : [];
+						
+						// Filter and validate indices compatibility with abstractions array
+						chapterOrder = chapterOrder.filter(idx => typeof idx === "number" && idx >= 0 && idx < abstractions.length);
+						// Ensure unique indices
+						chapterOrder = Array.from(new Set(chapterOrder));
+						// If any abstraction index is missing, append it at the end to prevent incomplete book drafts
+						for (let i = 0; i < abstractions.length; i++) {
+							if (!chapterOrder.includes(i)) {
+								chapterOrder.push(i);
+							}
+						}
 						
 						// Pre-create chapter metadata maps
 						const chapterFilenames: { [key: number]: ChapterFilename } = {};
@@ -506,7 +521,7 @@ Output ONLY a JSON array of numbers inside \`\`\`json\`\`\` tags reflecting the 
 
 							const previousSummariesText = writtenChaptersTexts.slice(0, currentIdx).join("\n---\n");
 
-							const writeSystem = "You are a master technical educator writing a beginner-friendly code tutorial chapter.";
+							const writeSystem = "You are a senior systems architect and technical educator writing a deep yet beginner-friendly codebase tutorial chapter.";
 							const writePrompt = `Write Chapter ${chapterNum} of a developer tutorial for \`${projectName}\` about the concept: "${abs.name}".
 Language requirement: Write the entire chapter exclusively in **${language}**.
 
@@ -522,16 +537,17 @@ ${previousSummariesText || "This is the first chapter."}
 Related Code Files:
 ${relatedContent || "No specific raw files were mapped to this abstraction."}
 
-Write this Chapter in beautiful, beginner-friendly Markdown utilizing these strict guidelines:
+Write this Chapter in beautiful, highly educative Markdown utilizing these strict formatting and technical guidelines:
 1. Start with a clean Markdown H1 header: \`# Chapter ${chapterNum}: ${abs.name}\`
 2. Begin with a clear transition explaining how this relates to any previous abstraction (using direct relative file links where useful).
-3. Walk down key details. Keep code snippets under 10 lines, explaining after every blocks with concrete analogies.
-4. Explain step-by-step internal code execution routines. If helpful, draw a small sequence/architecture diagram inside text using \`\`\`mermaid \`\`\`.
-5. Finish with a transition note linking smoothly to the next concept.
+3. Walk through key details and mechanisms. Code blocks must be under 10 lines! Explain right after each block.
+4. IMPORTANT - Analogies & Open-Source Comparisons: Use professional engineering or system design analogies. For example, use analogies like hardware assembly lines, compiler pipeline architectures, operating system schedulers, database replication protocols, signal transmission grids, router switches, or load balancers. Absolutely AVOID simplistic / non-technical everyday metaphors (such as toys, kitchens, supermarkets, or cars). Where relevant, cross-reference and compare the concepts with widely-known open-source projects or industry standards (for example: if describing a scheduler or workflow, relate it to Cron jobs, Apache Airflow, or Celery; if describing a database or data store, relate it to InfluxDB, PostgreSQL, or Redis; if describing state-machines or graphs, relate it to statechart engines or workflow orchestrators). Use these comparisons to build immediate intuition for readers.
+5. IMPORTANT - Diagrams: Whenever depicting any step-by-step code execution flow, sequence, or structural arrangement, ALWAYS use standard Mermaid diagrams (using \`\`\`mermaid\`\`\`). Do NOT draw any text-based, ASCII, or plain-text diagrams (like "A -> B").
+6. Finish with a transition note linking smoothly to the next concept.
 
 Provide ONLY the raw Markdown document contents in **${language}**. Do not include backticks surrounding the whole file.`;
 
-							const chapterDoc = await callLlmWithRetry(
+							let chapterDoc = await callLlmWithRetry(
 								ctx,
 								writeSystem,
 								writePrompt,
@@ -539,6 +555,16 @@ Provide ONLY the raw Markdown document contents in **${language}**. Do not inclu
 								3,
 								loader.signal
 							);
+
+							// Clean up surrounding markdown backticks if LLM mistakenly outputs them
+							const trimmed = chapterDoc.trim();
+							if (trimmed.startsWith("```markdown")) {
+								chapterDoc = trimmed.substring(11, trimmed.length - 3).trim();
+							} else if (trimmed.startsWith("```html")) {
+								chapterDoc = trimmed.substring(7, trimmed.length - 3).trim();
+							} else if (trimmed.startsWith("```") && trimmed.endsWith("```")) {
+								chapterDoc = trimmed.substring(3, trimmed.length - 3).trim();
+							}
 
 							writtenChaptersTexts[currentIdx] = chapterDoc;
 						});
