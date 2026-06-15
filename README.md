@@ -15,10 +15,10 @@ The entire multi-layer workspace crawls, analyzes, and drafts chapters asynchron
 
 ```text
 ┌────────────────────────────────────────────────────────┐
-│  Step 5: Drafting guidebook chapters (Attempt 1/5)... │
-│  [  /  ] Analyzing code structure...                    │
+│  Step 5: Drafting guidebook chapters (Attempt 1/5)...  │
+│  [  /  ] Analyzing code structure...                   │
 │                                                        │
-│  Writing Chapter 2 of 5: Execution Nodes (Parallel)   │
+│  Writing Chapter 2 of 5: Execution Nodes (Parallel)    │
 └────────────────────────────────────────────────────────┘
 ```
 
