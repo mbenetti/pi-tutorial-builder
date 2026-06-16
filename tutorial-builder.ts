@@ -226,6 +226,11 @@ export default function (pi: ExtensionAPI) {
 	pi.registerCommand("tutorial", {
 		description: "Generate a comprehensive tutorial from a codebase or remote repo",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
+			if (ctx.mode !== "tui") {
+				ctx.ui.notify("Tutorial builder command requires interactive TUI mode.", "error");
+				return;
+			}
+
 			if (!ctx.model) {
 				ctx.ui.notify("No model active. Please select a model first.", "error");
 				return;
