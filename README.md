@@ -47,6 +47,12 @@ Add the extension using the `pi` CLI:
 pi install https://github.com/mbenetti/pi-tutorial-builder.git
 ```
 
+Alternatively, you can try this extension for a single run without permanently installing it:
+
+```bash
+pi -e https://github.com/mbenetti/pi-tutorial-builder.git
+```
+
 This will automatically securely download the remote workspace and register the extension as a global utility in your active settings (`~/.pi/agent/settings.json`).
 
 ---
