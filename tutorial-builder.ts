@@ -163,7 +163,8 @@ async function callLlmWithRetry(
 	prompt: string,
 	validator: (content: string) => boolean,
 	retries = 3,
-	signal?: AbortSignal
+	signal?: AbortSignal,
+	taskName?: string
 ): Promise<string> {
 	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model!);
 	if (!auth.ok || !auth.apiKey) {
@@ -178,9 +179,14 @@ async function callLlmWithRetry(
 				timestamp: Date.now(),
 			};
 
-			// Update the loader message to show attempts or sub-tasks dynamically
+			// Update the loader message only when taskName is explicitly provided or upon retries
 			if (typeof (global as any)._piLoader_set === "function") {
-				(global as any)._piLoader_set(systemPrompt.substring(0, 30) + ` (Attempt ${attempt}/5)...`);
+				if (taskName) {
+					const attemptSuffix = attempt > 1 ? ` (Attempt ${attempt}/${retries})` : "";
+					(global as any)._piLoader_set(`${taskName}${attemptSuffix}...`);
+				} else if (attempt > 1) {
+					(global as any)._piLoader_set(`Retrying LLM Call... (Attempt ${attempt}/${retries})`);
+				}
 			}
 
 			const response = await complete(
@@ -254,7 +260,7 @@ export default function (pi: ExtensionAPI) {
 
 			// Generate tutorial process inside BorderedLoader to cleanly block and present statuses
 			await ctx.ui.custom<void>((tui, theme, _kb, done) => {
-				const loader = new BorderedLoader(tui, theme, "Step 1: Setting up environment...", { height: 12 });
+				const loader = new BorderedLoader(tui, theme, "Step 1/6: Setting up environment...", { height: 12 });
 				
 				// Expose loader text changer globally so callLlmWithRetry can update the spinner text
 				(global as any)._piLoader_set = (text: string) => {
@@ -277,7 +283,7 @@ export default function (pi: ExtensionAPI) {
 						// Check if sourceInput is a network Git Repo
 						const isRemote = sourceInput.startsWith("http") || sourceInput.startsWith("git@") || sourceInput.includes("github.com");
 						if (isRemote) {
-							loader.text = "Cloning remote repository into temporary directory...";
+							loader.text = "Step 1/6: Cloning remote repository into temporary directory...";
 							tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-tutorial-"));
 							projectName = sourceInput.substring(sourceInput.lastIndexOf("/") + 1).replace(".git", "");
 							
@@ -288,6 +294,7 @@ export default function (pi: ExtensionAPI) {
 								throw new Error(`Failed to clone remote git repository: ${e.message}`);
 							}
 						} else {
+							loader.text = "Step 1/6: Resolving local workspace path...";
 							// Local directory
 							sourcePath = path.resolve(ctx.cwd, sourceInput);
 							if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isDirectory()) {
@@ -307,7 +314,7 @@ export default function (pi: ExtensionAPI) {
 						}
 
 						// Fetch Files
-						loader.text = "Crawling local repository files...";
+						loader.text = "Step 1/6: Crawling local repository files...";
 						const files = crawlLocalDirectory(sourcePath);
 						if (files.length === 0) {
 							throw new Error("No compatible code files parsed within this repository workspace.");
@@ -319,7 +326,7 @@ export default function (pi: ExtensionAPI) {
 						const fullFilesContext = files.map((f, i) => `--- File Index ${i}: ${f.path} ---\n${f.content}\n\n`).join("");
 
 						// 1. IdentifyAbstractions
-						loader.text = "Step 2: Identifying core abstractions (this can take up to 30 seconds)...";
+						loader.text = "Step 2/6: Identifying core abstractions (this can take up to 30 seconds)...";
 						const identifySystem = "You are a code architecture learning specialist. Analyze code files and return abstractions list.";
 						const identifyPrompt = `For the project \`${projectName}\`:
 
@@ -360,7 +367,8 @@ Output ONLY a JSON array of objects inside a single \`\`\`json\`\`\` code block 
 								}
 							},
 							3,
-							loader.signal
+							loader.signal,
+							"Step 2/6: Identifying core abstractions"
 						);
 
 						const abstractionsRaw = extractJsonBlock<any[]>(rawAbstractions);
@@ -380,7 +388,7 @@ Output ONLY a JSON array of objects inside a single \`\`\`json\`\`\` code block 
 						});
 
 						// 2. AnalyzeRelationships
-						loader.text = "Step 3: Determining connections/relationships between abstractions...";
+						loader.text = "Step 3/6: Determining connections/relationships between abstractions...";
 						const relationshipListing = abstractions.map((a, i) => `- Index ${i}: ${a.name} (Files: ${a.files.join(", ")}). Description: ${a.description}`).join("\n");
 						
 						// Build partial files content context
@@ -431,7 +439,8 @@ Ensure to output only valid JSON.`;
 								}
 							},
 							3,
-							loader.signal
+							loader.signal,
+							"Step 3/6: Determining abstractions connections"
 						);
 
 						const relationshipsRaw = extractJsonBlock<any>(rawRelationships);
@@ -450,7 +459,7 @@ Ensure to output only valid JSON.`;
 						};
 
 						// 3. OrderChapters
-						loader.text = "Step 4: Mapping the ideal textbook reading order...";
+						loader.text = "Step 4/6: Mapping the ideal textbook reading order...";
 						const chapterOrderSystem = "You are an educational designer mapping the best sequence of concepts.";
 						const chapterListing = abstractions.map((a, i) => `- ${i} # ${a.name}`).join("\n");
 						const chapterOrderPrompt = `We are mapping a tutorial walkthrough sequence for \`${projectName}\`.
@@ -481,7 +490,8 @@ Output ONLY a JSON array of numbers inside \`\`\`json\`\`\` tags reflecting the 
 								}
 							},
 							3,
-							loader.signal
+							loader.signal,
+							"Step 4/6: Sequence mapping"
 						);
 
 						const orderRaw = extractJsonBlock<number[]>(rawOrder);
@@ -516,14 +526,25 @@ Output ONLY a JSON array of numbers inside \`\`\`json\`\`\` tags reflecting the 
 						const fullChapterListingStr = allChaptersList.join("\n");
 
 						// 4. WriteChapters (Concurrent map with limit of 3)
-						loader.text = "Step 5: Drafting guidebook chapters (drafting 3 chapters in parallel)...";
+						loader.text = "Step 5/6: Drafting guidebook chapters (drafting 3 chapters in parallel)...";
 						
 						const writtenChaptersTexts: string[] = [];
+						const activeChapters = new Set<string>();
+						const updateLoaderText = () => {
+							if (activeChapters.size > 0) {
+								const items = Array.from(activeChapters).join(", ");
+								loader.text = `Step 5/6: Drafting guidebook chapters [Active: ${items}]...`;
+							} else {
+								loader.text = "Step 5/6: Drafting guidebook chapters...";
+							}
+						};
 						
 						await concurrentMap(chapterOrder, 3, async (absIdx, currentIdx) => {
 							const abs = abstractions[absIdx];
 							const chapterNum = currentIdx + 1;
-							ctx.ui.setStatus("tutorial-builder", `Writing Chapter ${chapterNum}/${abstractions.length}: ${abs.name}...`);
+							const chapterDisplay = `Ch ${chapterNum}`;
+							activeChapters.add(chapterDisplay);
+							updateLoaderText();
 
 							// Fetch only local related files context for this chapter
 							const relatedContent = abs.files.map(idx => `--- File: ${files[idx].path} ---\n${files[idx].content}`).join("\n\n");
@@ -558,30 +579,35 @@ Write this Chapter in beautiful, highly educative Markdown utilizing these stric
 
 Provide ONLY the raw Markdown document contents in **${language}**. Do not include backticks surrounding the whole file.`;
 
-							let chapterDoc = await callLlmWithRetry(
-								ctx,
-								writeSystem,
-								writePrompt,
-								(resp) => resp.length > 100, // length verification
-								3,
-								loader.signal
-							);
+							try {
+								let chapterDoc = await callLlmWithRetry(
+									ctx,
+									writeSystem,
+									writePrompt,
+									(resp) => resp.length > 100, // length verification
+									3,
+									loader.signal
+								);
 
-							// Clean up surrounding markdown backticks if LLM mistakenly outputs them
-							const trimmed = chapterDoc.trim();
-							if (trimmed.startsWith("```markdown")) {
-								chapterDoc = trimmed.substring(11, trimmed.length - 3).trim();
-							} else if (trimmed.startsWith("```html")) {
-								chapterDoc = trimmed.substring(7, trimmed.length - 3).trim();
-							} else if (trimmed.startsWith("```") && trimmed.endsWith("```")) {
-								chapterDoc = trimmed.substring(3, trimmed.length - 3).trim();
+								// Clean up surrounding markdown backticks if LLM mistakenly outputs them
+								const trimmed = chapterDoc.trim();
+								if (trimmed.startsWith("```markdown")) {
+									chapterDoc = trimmed.substring(11, trimmed.length - 3).trim();
+								} else if (trimmed.startsWith("```html")) {
+									chapterDoc = trimmed.substring(7, trimmed.length - 3).trim();
+								} else if (trimmed.startsWith("```") && trimmed.endsWith("```")) {
+									chapterDoc = trimmed.substring(3, trimmed.length - 3).trim();
+								}
+
+								writtenChaptersTexts[currentIdx] = chapterDoc;
+							} finally {
+								activeChapters.delete(chapterDisplay);
+								updateLoaderText();
 							}
-
-							writtenChaptersTexts[currentIdx] = chapterDoc;
 						});
 
 						// 5. CombineTutorial
-						loader.text = "Step 6: Assembling markdown index and output directory structure...";
+						loader.text = "Step 6/6: Assembling markdown index and output directory structure...";
 						
 						// Build relationships Mermaid diagram with shortened edge labels to prevent overlaps
 						const mermaidLines = ["flowchart TD"];
@@ -624,7 +650,6 @@ Provide ONLY the raw Markdown document contents in **${language}**. Do not inclu
 							fs.rmSync(tempDir, { recursive: true, force: true });
 						}
 
-						ctx.ui.setStatus("tutorial-builder", "");
 						(global as any)._piLoader_set = undefined;
 						ctx.ui.notify(`Tutorial compiled successfully! Saved to: ${outputFolderBase}`, "info");
 

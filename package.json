@@ -1,0 +1,21 @@
+{
+  "name": "pi-tutorial-builder",
+  "version": "1.0.0",
+  "description": "Interactive Pi extension to automatically draft beautifully structured developer tutorial books from any codebase or git repository.",
+  "main": "tutorial-builder.ts",
+  "keywords": [
+    "pi-package"
+  ],
+  "author": "Mauro Benetti",
+  "license": "MIT",
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./tutorial-builder.ts"
+    ]
+  }
+}
