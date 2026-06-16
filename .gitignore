@@ -1,0 +1,5 @@
+# Node modules and package locks
+node_modules/
+package-lock.json
+prompts_catalog.json
+.DS_Store
