@@ -84,6 +84,7 @@ List of files with their indices:
 {fileListingForPrompt}
 
 Output ONLY a JSON array of objects inside a single ```json``` code block matching this structure:
+
   ```json
   [
     {
@@ -138,6 +139,7 @@ Output ONLY a JSON array of objects inside a single ```json``` code block matchi
 * **Purpose:** pedagogical sequencing. Mapped sequentially from primary initialization endpoints down to lower-level subsystems.
 * **System Prompt:** `You are an educational designer mapping the best sequence of concepts.`
 * **Core Prompt Structure:**
+  
 ```text
 We are mapping a tutorial walkthrough sequence for `{projectName}`.
 Given these concepts:
@@ -150,11 +152,11 @@ What is the optimal instructional order to describe these abstractions from firs
 List all {abstractionsLength} indices exactly once.
 
 Output ONLY a JSON array of numbers inside ```json``` tags reflecting the best index sequence:
-```json
-[2, 0, 1, 3]
-```
+  ```json
+  [2, 0, 1, 3]
+  ```
 
----
+
 
 ### 4. Technical Textbook Drafting Node (`WriteChapters`)
 * **Purpose:** Draft beautifully styled standalone Markdown files covering specified architectural topics.
