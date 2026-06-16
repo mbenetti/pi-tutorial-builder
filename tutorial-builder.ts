@@ -270,7 +270,12 @@ export default function (pi: ExtensionAPI) {
 			const runPipeline = async (loader?: any) => {
 				const updateProgress = (text: string) => {
 					if (loader) {
-						loader.text = text;
+						// Update the underlying Loader component's message safely so it re-renders inside standard TUI boxes!
+						if (loader.loader && typeof loader.loader.setMessage === "function") {
+							loader.loader.setMessage(text);
+						} else {
+							loader.text = text;
+						}
 					} else {
 						ctx.ui.notify(text, "info");
 						console.log(`[Tutorial Builder] ${text}`);
