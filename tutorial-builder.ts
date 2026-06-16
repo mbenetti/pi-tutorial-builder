@@ -183,7 +183,7 @@ async function callLlmWithRetry(
 			if (typeof (global as any)._piLoader_set === "function") {
 				if (taskName) {
 					const attemptSuffix = attempt > 1 ? ` (Attempt ${attempt}/${retries})` : "";
-					(global as any)._piLoader_set(`${taskName}${attemptSuffix}...`);
+					(global as any)._piLoader_set(`${taskName}${attemptSuffix}`);
 				} else if (attempt > 1) {
 					(global as any)._piLoader_set(`Retrying LLM Call... (Attempt ${attempt}/${retries})`);
 				}
@@ -260,7 +260,7 @@ export default function (pi: ExtensionAPI) {
 
 			// Generate tutorial process inside BorderedLoader to cleanly block and present statuses
 			await ctx.ui.custom<void>((tui: any, theme: any, _kb: any, done: (val?: void) => void) => {
-				const loader = new BorderedLoader(tui, theme, "Step 1/6: Setting up environment...", { height: 12 });
+				const loader = new BorderedLoader(tui, theme, "Step 1/6: Setting up environment", { height: 12 });
 				
 				// Expose loader text changer globally so callLlmWithRetry can update the spinner text
 				(global as any)._piLoader_set = (text: string) => {
@@ -283,7 +283,7 @@ export default function (pi: ExtensionAPI) {
 						// Check if sourceInput is a network Git Repo
 						const isRemote = sourceInput.startsWith("http") || sourceInput.startsWith("git@") || sourceInput.includes("github.com");
 						if (isRemote) {
-							loader.text = "Step 1/6: Cloning remote repository into temporary directory...";
+							loader.text = "Step 1/6: Cloning remote repository into temporary directory";
 							tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-tutorial-"));
 							projectName = sourceInput.substring(sourceInput.lastIndexOf("/") + 1).replace(".git", "");
 							
@@ -296,7 +296,7 @@ export default function (pi: ExtensionAPI) {
 								throw new Error(`Failed to clone remote git repository: ${e.message}`);
 							}
 						} else {
-							loader.text = "Step 1/6: Resolving local workspace path...";
+							loader.text = "Step 1/6: Resolving local workspace path";
 							// Local directory
 							const resolvedLocalPath = path.resolve(ctx.cwd, sourceInput);
 							if (!fs.existsSync(resolvedLocalPath) || !fs.statSync(resolvedLocalPath).isDirectory()) {
@@ -317,7 +317,7 @@ export default function (pi: ExtensionAPI) {
 						}
 
 						// Fetch Files
-						loader.text = "Step 1/6: Crawling local repository files...";
+						loader.text = "Step 1/6: Crawling local repository files";
 						const files = crawlLocalDirectory(sourcePath);
 						if (files.length === 0) {
 							throw new Error("No compatible code files parsed within this repository workspace.");
@@ -329,7 +329,7 @@ export default function (pi: ExtensionAPI) {
 						const fullFilesContext = files.map((f, i) => `--- File Index ${i}: ${f.path} ---\n${f.content}\n\n`).join("");
 
 						// 1. IdentifyAbstractions
-						loader.text = "Step 2/6: Identifying core abstractions (this can take up to 30 seconds)...";
+						loader.text = "Step 2/6: Identifying core abstractions (this can take up to 30 seconds)";
 						const identifySystem = "You are a code architecture learning specialist. Analyze code files and return abstractions list.";
 						const identifyPrompt = `For the project \`${projectName}\`:
 
@@ -391,7 +391,7 @@ Output ONLY a JSON array of objects inside a single \`\`\`json\`\`\` code block 
 						});
 
 						// 2. AnalyzeRelationships
-						loader.text = "Step 3/6: Determining connections/relationships between abstractions...";
+						loader.text = "Step 3/6: Determining connections/relationships between abstractions";
 						const relationshipListing = abstractions.map((a, i) => `- Index ${i}: ${a.name} (Files: ${a.files.join(", ")}). Description: ${a.description}`).join("\n");
 						
 						// Build partial files content context
@@ -462,7 +462,7 @@ Ensure to output only valid JSON.`;
 						};
 
 						// 3. OrderChapters
-						loader.text = "Step 4/6: Mapping the ideal textbook reading order...";
+						loader.text = "Step 4/6: Mapping the ideal textbook reading order";
 						const chapterOrderSystem = "You are an educational designer mapping the best sequence of concepts.";
 						const chapterListing = abstractions.map((a, i) => `- ${i} # ${a.name}`).join("\n");
 						const chapterOrderPrompt = `We are mapping a tutorial walkthrough sequence for \`${projectName}\`.
@@ -529,16 +529,16 @@ Output ONLY a JSON array of numbers inside \`\`\`json\`\`\` tags reflecting the 
 						const fullChapterListingStr = allChaptersList.join("\n");
 
 						// 4. WriteChapters (Concurrent map with limit of 3)
-						loader.text = "Step 5/6: Drafting guidebook chapters (drafting 3 chapters in parallel)...";
+						loader.text = "Step 5/6: Drafting guidebook chapters...";
 						
 						const writtenChaptersTexts: string[] = [];
 						const activeChapters = new Set<string>();
 						const updateLoaderText = () => {
 							if (activeChapters.size > 0) {
 								const items = Array.from(activeChapters).join(", ");
-								loader.text = `Step 5/6: Drafting guidebook chapters [Active: ${items}]...`;
+								loader.text = `Step 5/6: Drafting guidebook chapters (Active: ${items})`;
 							} else {
-								loader.text = "Step 5/6: Drafting guidebook chapters...";
+								loader.text = "Step 5/6: Drafting guidebook chapters";
 							}
 						};
 						
@@ -610,7 +610,7 @@ Provide ONLY the raw Markdown document contents in **${language}**. Do not inclu
 						});
 
 						// 5. CombineTutorial
-						loader.text = "Step 6/6: Assembling markdown index and output directory structure...";
+						loader.text = "Step 6/6: Assembling markdown index and output directory structure";
 						
 						// Build relationships Mermaid diagram with shortened edge labels to prevent overlaps
 						const mermaidLines = ["flowchart TD"];
