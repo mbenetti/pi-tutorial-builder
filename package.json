@@ -1,5 +1,5 @@
 {
-  "name": "pi-tutorial-builder",
+  "name": "tutorial-builder",
   "version": "1.0.0",
   "description": "Interactive Pi extension to automatically draft beautifully structured developer tutorial books from any codebase or git repository.",
   "main": "tutorial-builder.ts",

@@ -226,11 +226,6 @@ export default function (pi: ExtensionAPI) {
 	pi.registerCommand("tutorial", {
 		description: "Generate a comprehensive tutorial from a codebase or remote repo",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
-			if (ctx.mode !== "tui") {
-				ctx.ui.notify("Tutorial builder command requires interactive TUI mode.", "error");
-				return;
-			}
-
 			if (!ctx.model) {
 				ctx.ui.notify("No model active. Please select a model first.", "error");
 				return;
@@ -267,81 +262,82 @@ export default function (pi: ExtensionAPI) {
 				customOutput = path.isAbsolute(customOutput) ? customOutput : path.resolve(baseCwd, customOutput);
 			}
 
-			// Generate tutorial process inside BorderedLoader to cleanly block and present statuses
-			await ctx.ui.custom<void>((tui: any, theme: any, _kb: any, done: (val?: void) => void) => {
-				const loader = new BorderedLoader(tui, theme, "Step 1/6: Setting up environment", { height: 12 });
-				
+			const runPipeline = async (loader?: any) => {
+				const updateProgress = (text: string) => {
+					if (loader) {
+						loader.text = text;
+					} else {
+						ctx.ui.notify(text, "info");
+						console.log(`[Tutorial Builder] ${text}`);
+					}
+				};
+
 				// Expose loader text changer globally so callLlmWithRetry can update the spinner text
 				(global as any)._piLoader_set = (text: string) => {
-					loader.text = text;
+					updateProgress(text);
 				};
 
-				loader.onAbort = () => {
-					(global as any)._piLoader_set = undefined;
-					ctx.ui.notify("Tutorial building cancelled.", "info");
-					done();
-				};
+				const signal = loader?.signal;
 
-				const runPipeline = async () => {
-					try {
-						let tempDir: string | undefined;
-						let sourcePath: string = "";
-						let projectName = "project";
-						let repoUrl = sourceInput;
+				try {
+					let tempDir: string | undefined;
+					let sourcePath: string = "";
+					let projectName = "project";
+					let repoUrl = sourceInput;
 
-						// Check if sourceInput is a network Git Repo
-						const isRemote = sourceInput.startsWith("http://") || sourceInput.startsWith("https://") || sourceInput.startsWith("git@") || sourceInput.includes("github.com");
-						if (isRemote) {
-							loader.text = "Step 1/6: Cloning remote repository into temporary directory";
-							tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-tutorial-"));
-							projectName = sourceInput.substring(sourceInput.lastIndexOf("/") + 1).replace(".git", "");
-							
-							try {
-								execSync(`git clone --depth 1 "${sourceInput}" "${tempDir}"`, { stdio: "ignore" });
-								if (tempDir) {
-									sourcePath = tempDir;
-								}
-							} catch (e: any) {
-								throw new Error(`Failed to clone remote git repository: ${e.message}`);
+					// Check if sourceInput is a network Git Repo
+					const isRemote = sourceInput.startsWith("http://") || sourceInput.startsWith("https://") || sourceInput.startsWith("git@") || sourceInput.includes("github.com");
+					if (isRemote) {
+						updateProgress("Step 1/6: Cloning remote repository into temporary directory");
+						tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-tutorial-"));
+						projectName = sourceInput.substring(sourceInput.lastIndexOf("/") + 1).replace(".git", "");
+						
+						try {
+							execSync(`git clone --depth 1 "${sourceInput}" "${tempDir}"`, { stdio: "ignore" });
+							if (tempDir) {
+								sourcePath = tempDir;
 							}
-						} else {
-							loader.text = "Step 1/6: Resolving local workspace path";
-							// Local directory
-							const baseCwd = ctx.cwd ? path.resolve(ctx.cwd) : process.cwd();
-							const resolvedLocalPath = path.resolve(baseCwd, sourceInput);
-							if (!fs.existsSync(resolvedLocalPath) || !fs.statSync(resolvedLocalPath).isDirectory()) {
-								throw new Error(`Local directory path could not be found: ${resolvedLocalPath}`);
-							}
-							sourcePath = resolvedLocalPath;
-							projectName = path.basename(resolvedLocalPath);
-
-							// Attempt to resolve real Git remote URL if it exists
-							try {
-								const remoteUrl = execSync("git remote get-url origin", { cwd: sourcePath, encoding: "utf-8" }).trim();
-								if (remoteUrl) {
-									repoUrl = remoteUrl;
-								}
-							} catch {
-								// Keep sourceInput as fallback
-							}
+						} catch (e: any) {
+							throw new Error(`Failed to clone remote git repository: ${e.message}`);
 						}
-
-						// Fetch Files
-						loader.text = "Step 1/6: Crawling local repository files";
-						const files = crawlLocalDirectory(sourcePath);
-						if (files.length === 0) {
-							throw new Error("No compatible code files parsed within this repository workspace.");
+					} else {
+						updateProgress("Step 1/6: Resolving local workspace path");
+						// Local directory
+						const baseCwd = ctx.cwd ? path.resolve(ctx.cwd) : process.cwd();
+						const resolvedLocalPath = path.resolve(baseCwd, sourceInput);
+						if (!fs.existsSync(resolvedLocalPath) || !fs.statSync(resolvedLocalPath).isDirectory()) {
+							throw new Error(`Local directory path could not be found: ${resolvedLocalPath}`);
 						}
-						ctx.ui.notify(`Successfully parsed ${files.length} source code files. Entering pipeline.`, "info");
+						sourcePath = resolvedLocalPath;
+						projectName = path.basename(resolvedLocalPath);
 
-						// Prepare Context files list for references
-						const fileListingForPrompt = files.map((f, i) => `- ${i} # ${f.path}`).join("\n");
-						const fullFilesContext = files.map((f, i) => `--- File Index ${i}: ${f.path} ---\n${f.content}\n\n`).join("");
+						// Attempt to resolve real Git remote URL if it exists
+						try {
+							const remoteUrl = execSync("git remote get-url origin", { cwd: sourcePath, encoding: "utf-8" }).trim();
+							if (remoteUrl) {
+								repoUrl = remoteUrl;
+							}
+						} catch {
+							// Keep sourceInput as fallback
+						}
+					}
 
-						// 1. IdentifyAbstractions
-						loader.text = "Step 2/6: Identifying core abstractions (this can take up to 30 seconds)";
-						const identifySystem = "You are a code architecture learning specialist. Analyze code files and return abstractions list.";
-						const identifyPrompt = `For the project \`${projectName}\`:
+					// Fetch Files
+					updateProgress("Step 1/6: Crawling local repository files");
+					const files = crawlLocalDirectory(sourcePath);
+					if (files.length === 0) {
+						throw new Error("No compatible code files parsed within this repository workspace.");
+					}
+					ctx.ui.notify(`Successfully parsed ${files.length} source code files. Entering pipeline.`, "info");
+
+					// Prepare Context files list for references
+					const fileListingForPrompt = files.map((f, i) => `- ${i} # ${f.path}`).join("\n");
+					const fullFilesContext = files.map((f, i) => `--- File Index ${i}: ${f.path} ---\n${f.content}\n\n`).join("");
+
+					// 1. IdentifyAbstractions
+					updateProgress("Step 2/6: Identifying core abstractions (this can take up to 30 seconds)");
+					const identifySystem = "You are a code architecture learning specialist. Analyze code files and return abstractions list.";
+					const identifyPrompt = `For the project \`${projectName}\`:
 
 Codebase Context:
 ${fullFilesContext}
@@ -367,49 +363,49 @@ Output ONLY a JSON array of objects inside a single \`\`\`json\`\`\` code block 
 ]
 \`\`\``;
 
-						const rawAbstractions = await callLlmWithRetry(
-							ctx,
-							identifySystem,
-							identifyPrompt,
-							(resp) => {
-								try {
-									const parsed = extractJsonBlock<any[]>(resp);
-									return Array.isArray(parsed) && parsed.length > 0 && parsed.every(abs => abs && (abs.name || abs.description || abs.file_indices));
-								} catch {
-									return false;
-								}
-							},
-							3,
-							loader.signal,
-							"Step 2/6: Identifying core abstractions"
-						);
+					const rawAbstractions = await callLlmWithRetry(
+						ctx,
+						identifySystem,
+						identifyPrompt,
+						(resp) => {
+							try {
+								const parsed = extractJsonBlock<any[]>(resp);
+								return Array.isArray(parsed) && parsed.length > 0 && parsed.every(abs => abs && (abs.name || abs.description || abs.file_indices));
+							} catch {
+								return false;
+							}
+						},
+						3,
+						signal,
+						"Step 2/6: Identifying core abstractions"
+					);
 
-						const abstractionsRaw = extractJsonBlock<any[]>(rawAbstractions);
-						if (!Array.isArray(abstractionsRaw)) throw new Error("LLM identifying abstractions did not return a array.");
+					const abstractionsRaw = extractJsonBlock<any[]>(rawAbstractions);
+					if (!Array.isArray(abstractionsRaw)) throw new Error("LLM identifying abstractions did not return a array.");
 
-						// Validate indices and sanitize files map
-						const abstractions: Abstraction[] = abstractionsRaw.map((abs) => {
-							const validIndices = (abs.file_indices || []).filter((idx: any) => {
-								const n = parseInt(idx, 10);
-								return !isNaN(n) && n >= 0 && n < files.length;
-							});
-							return {
-								name: abs.name || "Concept",
-								description: abs.description || "Core abstraction concept.",
-								files: validIndices
-							};
+					// Validate indices and sanitize files map
+					const abstractions: Abstraction[] = abstractionsRaw.map((abs) => {
+						const validIndices = (abs.file_indices || []).filter((idx: any) => {
+							const n = parseInt(idx, 10);
+							return !isNaN(n) && n >= 0 && n < files.length;
 						});
+						return {
+							name: abs.name || "Concept",
+							description: abs.description || "Core abstraction concept.",
+							files: validIndices
+						};
+					});
 
-						// 2. AnalyzeRelationships
-						loader.text = "Step 3/6: Determining connections/relationships between abstractions";
-						const relationshipListing = abstractions.map((a, i) => `- Index ${i}: ${a.name} (Files: ${a.files.join(", ")}). Description: ${a.description}`).join("\n");
-						
-						// Build partial files content context
-						const uniqueIndices = Array.from(new Set(abstractions.flatMap(a => a.files)));
-						const relationshipFilesContext = uniqueIndices.map(idx => `--- File: ${ctx.cwd} # ${files[idx].path} ---\n${files[idx].content}`).join("\n\n");
+					// 2. AnalyzeRelationships
+					updateProgress("Step 3/6: Determining connections/relationships between abstractions");
+					const relationshipListing = abstractions.map((a, i) => `- Index ${i}: ${a.name} (Files: ${a.files.join(", ")}). Description: ${a.description}`).join("\n");
+					
+					// Build partial files content context
+					const uniqueIndices = Array.from(new Set(abstractions.flatMap(a => a.files)));
+					const relationshipFilesContext = uniqueIndices.map(idx => `--- File: ${ctx.cwd} # ${files[idx].path} ---\n${files[idx].content}`).join("\n\n");
 
-						const relationshipSystem = "You are a software architect mapping connections between abstractions.";
-						const relationshipPrompt = `Analyze the concepts below for project \`${projectName}\`.
+					const relationshipSystem = "You are a software architect mapping connections between abstractions.";
+					const relationshipPrompt = `Analyze the concepts below for project \`${projectName}\`.
 
 Abstractions Map:
 ${relationshipListing}
@@ -439,43 +435,43 @@ IMPORTANT: Both "summary" and relationship "label" fields must be fully generate
 Keep the relationship "label" strictly very short (1 to 3 words maximum, e.g., "Manages", "Inherits", "Spawns", "Triggers", "Uses"). This ensures diagram labels do not overlap!
 Ensure to output only valid JSON.`;
 
-						const rawRelationships = await callLlmWithRetry(
-							ctx,
-							relationshipSystem,
-							relationshipPrompt,
-							(resp) => {
-								try {
-									const parsed = extractJsonBlock<any>(resp);
-									return !!(parsed && parsed.summary && parsed.relationships);
-								} catch {
-									return false;
-								}
-							},
-							3,
-							loader.signal,
-							"Step 3/6: Determining abstractions connections"
-						);
+					const rawRelationships = await callLlmWithRetry(
+						ctx,
+						relationshipSystem,
+						relationshipPrompt,
+						(resp) => {
+							try {
+								const parsed = extractJsonBlock<any>(resp);
+								return !!(parsed && parsed.summary && parsed.relationships);
+							} catch {
+								return false;
+							}
+						},
+						3,
+						signal,
+						"Step 3/6: Determining abstractions connections"
+					);
 
-						const relationshipsRaw = extractJsonBlock<any>(rawRelationships);
-						const relationships: RelationshipsData = {
-							summary: relationshipsRaw.summary || "",
-							details: (relationshipsRaw.relationships || [])
-								.map((rel: any) => ({
-									from: parseInt(rel.from_abstraction, 10),
-									to: parseInt(rel.to_abstraction, 10),
-									label: rel.label || "Uses"
-								}))
-								.filter((rel: any) =>
-									!isNaN(rel.from) && rel.from >= 0 && rel.from < abstractions.length &&
-									!isNaN(rel.to) && rel.to >= 0 && rel.to < abstractions.length
-								)
-						};
+					const relationshipsRaw = extractJsonBlock<any>(rawRelationships);
+					const relationships: RelationshipsData = {
+						summary: relationshipsRaw.summary || "",
+						details: (relationshipsRaw.relationships || [])
+							.map((rel: any) => ({
+								from: parseInt(rel.from_abstraction, 10),
+								to: parseInt(rel.to_abstraction, 10),
+								label: rel.label || "Uses"
+							}))
+							.filter((rel: any) =>
+								!isNaN(rel.from) && rel.from >= 0 && rel.from < abstractions.length &&
+								!isNaN(rel.to) && rel.to >= 0 && rel.to < abstractions.length
+							)
+					};
 
-						// 3. OrderChapters
-						loader.text = "Step 4/6: Mapping the ideal textbook reading order";
-						const chapterOrderSystem = "You are an educational designer mapping the best sequence of concepts.";
-						const chapterListing = abstractions.map((a, i) => `- ${i} # ${a.name}`).join("\n");
-						const chapterOrderPrompt = `We are mapping a tutorial walkthrough sequence for \`${projectName}\`.
+					// 3. OrderChapters
+					updateProgress("Step 4/6: Mapping the ideal textbook reading order");
+					const chapterOrderSystem = "You are an educational designer mapping the best sequence of concepts.";
+					const chapterListing = abstractions.map((a, i) => `- ${i} # ${a.name}`).join("\n");
+					const chapterOrderPrompt = `We are mapping a tutorial walkthrough sequence for \`${projectName}\`.
 Given these concepts:
 ${chapterListing}
 
@@ -490,84 +486,84 @@ Output ONLY a JSON array of numbers inside \`\`\`json\`\`\` tags reflecting the 
 [2, 0, 1, 3]
 \`\`\``;
 
-						const rawOrder = await callLlmWithRetry(
-							ctx,
-							chapterOrderSystem,
-							chapterOrderPrompt,
-							(resp) => {
-								try {
-									const parsed = extractJsonBlock<number[]>(resp);
-									return Array.isArray(parsed) && parsed.length > 0 && parsed.every(n => typeof n === "number");
-								} catch {
-									return false;
-								}
-							},
-							3,
-							loader.signal,
-							"Step 4/6: Sequence mapping"
-						);
-
-						const orderRaw = extractJsonBlock<number[]>(rawOrder);
-						let chapterOrder = Array.isArray(orderRaw) ? orderRaw : [];
-						
-						// Filter and validate indices compatibility with abstractions array
-						chapterOrder = chapterOrder.filter(idx => typeof idx === "number" && idx >= 0 && idx < abstractions.length);
-						// Ensure unique indices
-						chapterOrder = Array.from(new Set(chapterOrder));
-						// If any abstraction index is missing, append it at the end to prevent incomplete book drafts
-						for (let i = 0; i < abstractions.length; i++) {
-							if (!chapterOrder.includes(i)) {
-								chapterOrder.push(i);
+					const rawOrder = await callLlmWithRetry(
+						ctx,
+						chapterOrderSystem,
+						chapterOrderPrompt,
+						(resp) => {
+							try {
+								const parsed = extractJsonBlock<number[]>(resp);
+								return Array.isArray(parsed) && parsed.length > 0 && parsed.every(n => typeof n === "number");
+							} catch {
+								return false;
 							}
+						},
+						3,
+						signal,
+						"Step 4/6: Sequence mapping"
+					);
+
+					const orderRaw = extractJsonBlock<number[]>(rawOrder);
+					let chapterOrder = Array.isArray(orderRaw) ? orderRaw : [];
+					
+					// Filter and validate indices compatibility with abstractions array
+					chapterOrder = chapterOrder.filter(idx => typeof idx === "number" && idx >= 0 && idx < abstractions.length);
+					// Ensure unique indices
+					chapterOrder = Array.from(new Set(chapterOrder));
+					// If any abstraction index is missing, append it at the end to prevent incomplete book drafts
+					for (let i = 0; i < abstractions.length; i++) {
+						if (!chapterOrder.includes(i)) {
+							chapterOrder.push(i);
 						}
-						
-						// Pre-create chapter metadata maps
-						const chapterFilenames: { [key: number]: ChapterFilename } = {};
-						const allChaptersList: string[] = [];
-						
-						chapterOrder.forEach((absIdx, i) => {
-							const abs = abstractions[absIdx];
-							const safeName = abs.name.toLowerCase().replace(/[^a-z0-9]+/g, "_");
-							const filename = `${String(i + 1).padStart(2, "0")}_${safeName}.md`;
-							chapterFilenames[absIdx] = {
-								num: i + 1,
-								name: abs.name,
-								filename
-							};
-							allChaptersList.push(`${i + 1}. [${abs.name}](${filename})`);
-						});
-						const fullChapterListingStr = allChaptersList.join("\n");
-
-						// 4. WriteChapters (Concurrent map with limit of 3)
-						loader.text = "Step 5/6: Drafting guidebook chapters...";
-						
-						const writtenChaptersTexts: string[] = [];
-						const activeChapters = new Set<string>();
-						const updateLoaderText = () => {
-							if (activeChapters.size > 0) {
-								const items = Array.from(activeChapters).join(", ");
-								loader.text = `Step 5/6: Drafting guidebook chapters (Active: ${items})`;
-							} else {
-								loader.text = "Step 5/6: Drafting guidebook chapters";
-							}
+					}
+					
+					// Pre-create chapter metadata maps
+					const chapterFilenames: { [key: number]: ChapterFilename } = {};
+					const allChaptersList: string[] = [];
+					
+					chapterOrder.forEach((absIdx, i) => {
+						const abs = abstractions[absIdx];
+						const safeName = abs.name.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+						const filename = `${String(i + 1).padStart(2, "0")}_${safeName}.md`;
+						chapterFilenames[absIdx] = {
+							num: i + 1,
+							name: abs.name,
+							filename
 						};
-						
-						await concurrentMap(chapterOrder, 3, async (absIdx, currentIdx) => {
-							const abs = abstractions[absIdx];
-							const chapterNum = currentIdx + 1;
-							const chapterDisplay = `Ch ${chapterNum}`;
-							activeChapters.add(chapterDisplay);
-							updateLoaderText();
+						allChaptersList.push(`${i + 1}. [${abs.name}](${filename})`);
+					});
+					const fullChapterListingStr = allChaptersList.join("\n");
 
-							// Fetch only local related files context for this chapter
-							const relatedContent = abs.files.map(idx => `--- File: ${files[idx].path} ---\n${files[idx].content}`).join("\n\n");
-							const prevChapter = currentIdx > 0 ? chapterFilenames[chapterOrder[currentIdx - 1]] : null;
-							const nextChapter = currentIdx < chapterOrder.length - 1 ? chapterFilenames[chapterOrder[currentIdx + 1]] : null;
+					// 4. WriteChapters (Concurrent map with limit of 3)
+					updateProgress("Step 5/6: Drafting guidebook chapters...");
+					
+					const writtenChaptersTexts: string[] = [];
+					const activeChapters = new Set<string>();
+					const updateLoaderText = () => {
+						if (activeChapters.size > 0) {
+							const items = Array.from(activeChapters).join(", ");
+							updateProgress(`Step 5/6: Drafting guidebook chapters (Active: ${items})`);
+						} else {
+							updateProgress("Step 5/6: Drafting guidebook chapters");
+						}
+					};
+					
+					await concurrentMap(chapterOrder, 3, async (absIdx, currentIdx) => {
+						const abs = abstractions[absIdx];
+						const chapterNum = currentIdx + 1;
+						const chapterDisplay = `Ch ${chapterNum}`;
+						activeChapters.add(chapterDisplay);
+						updateLoaderText();
 
-							const previousSummariesText = writtenChaptersTexts.slice(0, currentIdx).join("\n---\n");
+						// Fetch only local related files context for this chapter
+						const relatedContent = abs.files.map(idx => `--- File: ${files[idx].path} ---\n${files[idx].content}`).join("\n\n");
+						const prevChapter = currentIdx > 0 ? chapterFilenames[chapterOrder[currentIdx - 1]] : null;
+						const nextChapter = currentIdx < chapterOrder.length - 1 ? chapterFilenames[chapterOrder[currentIdx + 1]] : null;
 
-							const writeSystem = "You are a senior systems architect and technical educator writing a deep yet beginner-friendly codebase tutorial chapter.";
-							const writePrompt = `Write Chapter ${chapterNum} of a developer tutorial for \`${projectName}\` about the concept: "${abs.name}".
+						const previousSummariesText = writtenChaptersTexts.slice(0, currentIdx).join("\n---\n");
+
+						const writeSystem = "You are a senior systems architect and technical educator writing a deep yet beginner-friendly codebase tutorial chapter.";
+						const writePrompt = `Write Chapter ${chapterNum} of a developer tutorial for \`${projectName}\` about the concept: "${abs.name}".
 Language requirement: Write the entire chapter exclusively in **${language}**.
 
 Concept description:
@@ -592,93 +588,108 @@ Write this Chapter in beautiful, highly educative Markdown utilizing these stric
 
 Provide ONLY the raw Markdown document contents in **${language}**. Do not include backticks surrounding the whole file.`;
 
-							try {
-								let chapterDoc = await callLlmWithRetry(
-									ctx,
-									writeSystem,
-									writePrompt,
-									(resp) => resp.length > 100, // length verification
-									3,
-									loader.signal
-								);
+						try {
+							let chapterDoc = await callLlmWithRetry(
+								ctx,
+								writeSystem,
+								writePrompt,
+								(resp) => resp.length > 100, // length verification
+								3,
+								signal
+							);
 
-								// Clean up surrounding markdown backticks if LLM mistakenly outputs them
-								const trimmed = chapterDoc.trim();
-								if (trimmed.startsWith("```markdown")) {
-									chapterDoc = trimmed.substring(11, trimmed.length - 3).trim();
-								} else if (trimmed.startsWith("```html")) {
-									chapterDoc = trimmed.substring(7, trimmed.length - 3).trim();
-								} else if (trimmed.startsWith("```") && trimmed.endsWith("```")) {
-									chapterDoc = trimmed.substring(3, trimmed.length - 3).trim();
-								}
-
-								writtenChaptersTexts[currentIdx] = chapterDoc;
-							} finally {
-								activeChapters.delete(chapterDisplay);
-								updateLoaderText();
+							// Clean up surrounding markdown backticks if LLM mistakenly outputs them
+							const trimmed = chapterDoc.trim();
+							if (trimmed.startsWith("```markdown")) {
+								chapterDoc = trimmed.substring(11, trimmed.length - 3).trim();
+							} else if (trimmed.startsWith("```html")) {
+								chapterDoc = trimmed.substring(7, trimmed.length - 3).trim();
+							} else if (trimmed.startsWith("```") && trimmed.endsWith("```")) {
+								chapterDoc = trimmed.substring(3, trimmed.length - 3).trim();
 							}
-						});
 
-						// 5. CombineTutorial
-						loader.text = "Step 6/6: Assembling markdown index and output directory structure";
-						
-						// Build relationships Mermaid diagram with shortened edge labels to prevent overlaps
-						const mermaidLines = ["flowchart TD"];
-						abstractions.forEach((abs, i) => {
-							mermaidLines.push(`    A${i}["${abs.name}"]`);
-						});
-						relationships.details.forEach((rel) => {
-							let shortLabel = rel.label || "Uses";
-							// Keep labels strictly under 15 characters, truncating if necessary to keep diagram readable
-							if (shortLabel.length > 15) {
-								shortLabel = shortLabel.substring(0, 12).trim() + "...";
-							}
-							mermaidLines.push(`    A${rel.from} -- "${shortLabel}" --> A${rel.to}`);
-						});
-						const mermaidDiagram = mermaidLines.join("\n");
-
-						// Index page contents
-						let indexContent = `# Tutorial: ${projectName}\n\n`;
-						indexContent += `${relationships.summary}\n\n`;
-						indexContent += `**Source Repository:** ${repoUrl}\n\n`;
-						indexContent += "```mermaid\n" + mermaidDiagram + "\n```\n\n";
-						indexContent += "<h2>Chapters</h2>\n\n" + fullChapterListingStr + "\n\n---\nGenerated by Pi Tutorial Builder Extension : https://github.com/mbenetti/pi-tutorial-builder.git";
-
-						// Resolve complete outputs path
-						const baseCwd = ctx.cwd ? path.resolve(ctx.cwd) : process.cwd();
-						const outputFolderBase = customOutput || path.resolve(baseCwd, "tutorial", projectName);
-						fs.mkdirSync(outputFolderBase, { recursive: true });
-
-						// Write 00_index.md instead of index.md
-						fs.writeFileSync(path.join(outputFolderBase, "00_index.md"), indexContent);
-
-						// Write chapters
-						chapterOrder.forEach((absIdx, idx) => {
-							const meta = chapterFilenames[absIdx];
-							const chapterFileContent = writtenChaptersTexts[idx] + "\n\n---\nGenerated with Pi Tutorial Builder.";
-							fs.writeFileSync(path.join(outputFolderBase, meta.filename), chapterFileContent);
-						});
-
-						// Clean temp if used
-						if (tempDir && fs.existsSync(tempDir)) {
-							fs.rmSync(tempDir, { recursive: true, force: true });
+							writtenChaptersTexts[currentIdx] = chapterDoc;
+						} finally {
+							activeChapters.delete(chapterDisplay);
+							updateLoaderText();
 						}
+					});
 
-						(global as any)._piLoader_set = undefined;
-						ctx.ui.notify(`Tutorial compiled successfully! Saved to: ${outputFolderBase}`, "info");
+					// 5. CombineTutorial
+					updateProgress("Step 6/6: Assembling markdown index and output directory structure");
+					
+					// Build relationships Mermaid diagram with shortened edge labels to prevent overlaps
+					const mermaidLines = ["flowchart TD"];
+					abstractions.forEach((abs, i) => {
+						mermaidLines.push(`    A${i}["${abs.name}"]`);
+					});
+					relationships.details.forEach((rel) => {
+						let shortLabel = rel.label || "Uses";
+						// Keep labels strictly under 15 characters, truncating if necessary to keep diagram readable
+						if (shortLabel.length > 15) {
+							shortLabel = shortLabel.substring(0, 12).trim() + "...";
+						}
+						mermaidLines.push(`    A${rel.from} -- "${shortLabel}" --> A${rel.to}`);
+					});
+					const mermaidDiagram = mermaidLines.join("\n");
 
-					} catch (err: any) {
-						(global as any)._piLoader_set = undefined;
-						ctx.ui.notify(`Error generating tutorial: ${err.message}`, "error");
-					} finally {
-						done();
+					// Index page contents
+					let indexContent = `# Tutorial: ${projectName}\n\n`;
+					indexContent += `${relationships.summary}\n\n`;
+					indexContent += `**Source Repository:** ${repoUrl}\n\n`;
+					indexContent += "```mermaid\n" + mermaidDiagram + "\n```\n\n";
+					indexContent += "<h2>Chapters</h2>\n\n" + fullChapterListingStr + "\n\n---\nGenerated by Pi Tutorial Builder Extension : https://github.com/mbenetti/pi-tutorial-builder.git";
+
+					// Resolve complete outputs path
+					const baseCwd = ctx.cwd ? path.resolve(ctx.cwd) : process.cwd();
+					const outputFolderBase = customOutput || path.resolve(baseCwd, "tutorial", projectName);
+					fs.mkdirSync(outputFolderBase, { recursive: true });
+
+					// Write 00_index.md instead of index.md
+					fs.writeFileSync(path.join(outputFolderBase, "00_index.md"), indexContent);
+
+					// Write chapters
+					chapterOrder.forEach((absIdx, idx) => {
+						const meta = chapterFilenames[absIdx];
+						const chapterFileContent = writtenChaptersTexts[idx] + "\n\n---\nGenerated with Pi Tutorial Builder.";
+						fs.writeFileSync(path.join(outputFolderBase, meta.filename), chapterFileContent);
+					});
+
+					// Clean temp if used
+					if (tempDir && fs.existsSync(tempDir)) {
+						fs.rmSync(tempDir, { recursive: true, force: true });
 					}
-				};
 
-				runPipeline();
+					(global as any)._piLoader_set = undefined;
+					ctx.ui.notify(`Tutorial compiled successfully! Saved to: ${outputFolderBase}`, "info");
 
-				return loader;
-			});
+				} catch (err: any) {
+					(global as any)._piLoader_set = undefined;
+					ctx.ui.notify(`Error generating tutorial: ${err.message}`, "error");
+				}
+			};
+
+			if (ctx.mode === "tui") {
+				// Generate tutorial process inside BorderedLoader to cleanly block and present statuses
+				await ctx.ui.custom<void>((tui: any, theme: any, _kb: any, done: (val?: void) => void) => {
+					const loader = new BorderedLoader(tui, theme, "Step 1/6: Setting up environment", { height: 12 });
+					
+					loader.onAbort = () => {
+						(global as any)._piLoader_set = undefined;
+						ctx.ui.notify("Tutorial building cancelled.", "info");
+						done();
+					};
+
+					runPipeline(loader).finally(() => {
+						done();
+					});
+
+					return loader;
+				});
+			} else {
+				// Standard CLI or Agent non-TUI run
+				await runPipeline();
+			}
 		}
 	});
 }
