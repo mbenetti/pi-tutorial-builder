@@ -261,6 +261,12 @@ export default function (pi: ExtensionAPI) {
 				}
 			}
 
+			// Force absolute path resolution if customOutput is passed as argument
+			if (customOutput) {
+				const baseCwd = ctx.cwd ? path.resolve(ctx.cwd) : process.cwd();
+				customOutput = path.isAbsolute(customOutput) ? customOutput : path.resolve(baseCwd, customOutput);
+			}
+
 			// Generate tutorial process inside BorderedLoader to cleanly block and present statuses
 			await ctx.ui.custom<void>((tui: any, theme: any, _kb: any, done: (val?: void) => void) => {
 				const loader = new BorderedLoader(tui, theme, "Step 1/6: Setting up environment", { height: 12 });
@@ -640,9 +646,7 @@ Provide ONLY the raw Markdown document contents in **${language}**. Do not inclu
 
 						// Resolve complete outputs path
 						const baseCwd = ctx.cwd ? path.resolve(ctx.cwd) : process.cwd();
-						const outputFolderBase = customOutput 
-							? (path.isAbsolute(customOutput) ? customOutput : path.resolve(baseCwd, customOutput))
-							: path.resolve(baseCwd, "tutorial", projectName);
+						const outputFolderBase = customOutput || path.resolve(baseCwd, "tutorial", projectName);
 						fs.mkdirSync(outputFolderBase, { recursive: true });
 
 						// Write 00_index.md instead of index.md
