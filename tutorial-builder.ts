@@ -301,7 +301,7 @@ export default function (pi: ExtensionAPI) {
 						} else {
 							loader.text = "Step 1/6: Resolving local workspace path";
 							// Local directory
-							const baseCwd = ctx.cwd || (typeof process !== "undefined" ? process.cwd() : "");
+							const baseCwd = ctx.cwd ? path.resolve(ctx.cwd) : process.cwd();
 							const resolvedLocalPath = path.resolve(baseCwd, sourceInput);
 							if (!fs.existsSync(resolvedLocalPath) || !fs.statSync(resolvedLocalPath).isDirectory()) {
 								throw new Error(`Local directory path could not be found: ${resolvedLocalPath}`);
