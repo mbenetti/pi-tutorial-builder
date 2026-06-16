@@ -338,6 +338,10 @@ export default function (pi: ExtensionAPI) {
 					if (files.length === 0) {
 						throw new Error("No compatible code files parsed within this repository workspace.");
 					}
+					
+					// Force a 1.2-second pause so Step 1/6 is comfortably readable and looks beautiful in the TUI!
+					await new Promise((resolve) => setTimeout(resolve, 1200));
+
 					ctx.ui.notify(`Successfully parsed ${files.length} source code files. Entering pipeline.`, "info");
 
 					// Prepare Context files list for references
