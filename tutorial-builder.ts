@@ -199,7 +199,7 @@ async function callLlmWithRetry(
 				throw new Error("Generation aborted by user.");
 			}
 
-			const textContent = response.content?.find((c) => c.type === "text");
+			const textContent = response.content?.find((c: any) => c.type === "text") as { type: "text"; text: string } | undefined;
 			if (textContent && textContent.type === "text") {
 				// Let's print out the exact LLM content or why it failed
 				if (validator(textContent.text)) {
@@ -222,7 +222,7 @@ async function callLlmWithRetry(
 export default function (pi: ExtensionAPI) {
 	pi.registerCommand("tutorial", {
 		description: "Generate a comprehensive tutorial from a codebase or remote repo",
-		handler: async (args, ctx) => {
+		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			if (ctx.mode !== "tui") {
 				ctx.ui.notify("Tutorial builder command requires interactive TUI mode.", "error");
 				return;
@@ -240,7 +240,7 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			const sourceInput = parsedArgs[0];
+			const sourceInput: string = parsedArgs[0];
 			let maxAbstractions = 10;
 			let language = "english";
 			let customOutput: string | undefined;
@@ -259,7 +259,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			// Generate tutorial process inside BorderedLoader to cleanly block and present statuses
-			await ctx.ui.custom<void>((tui, theme, _kb, done) => {
+			await ctx.ui.custom<void>((tui: any, theme: any, _kb: any, done: (val?: void) => void) => {
 				const loader = new BorderedLoader(tui, theme, "Step 1/6: Setting up environment...", { height: 12 });
 				
 				// Expose loader text changer globally so callLlmWithRetry can update the spinner text
@@ -276,7 +276,7 @@ export default function (pi: ExtensionAPI) {
 				const runPipeline = async () => {
 					try {
 						let tempDir: string | undefined;
-						let sourcePath = sourceInput;
+						let sourcePath: string = "";
 						let projectName = "project";
 						let repoUrl = sourceInput;
 
@@ -289,18 +289,21 @@ export default function (pi: ExtensionAPI) {
 							
 							try {
 								execSync(`git clone --depth 1 "${sourceInput}" "${tempDir}"`, { stdio: "ignore" });
-								sourcePath = tempDir;
+								if (tempDir) {
+									sourcePath = tempDir;
+								}
 							} catch (e: any) {
 								throw new Error(`Failed to clone remote git repository: ${e.message}`);
 							}
 						} else {
 							loader.text = "Step 1/6: Resolving local workspace path...";
 							// Local directory
-							sourcePath = path.resolve(ctx.cwd, sourceInput);
-							if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isDirectory()) {
-								throw new Error(`Local directory path could not be found: ${sourcePath}`);
+							const resolvedLocalPath = path.resolve(ctx.cwd, sourceInput);
+							if (!fs.existsSync(resolvedLocalPath) || !fs.statSync(resolvedLocalPath).isDirectory()) {
+								throw new Error(`Local directory path could not be found: ${resolvedLocalPath}`);
 							}
-							projectName = path.basename(sourcePath);
+							sourcePath = resolvedLocalPath;
+							projectName = path.basename(resolvedLocalPath);
 
 							// Attempt to resolve real Git remote URL if it exists
 							try {
