@@ -192,26 +192,59 @@ async function callLlmWithRetry(
 				}
 			}
 
-			const response = await complete(
-				ctx.model!,
-				{ systemPrompt, messages: [userMessage] },
-				{ apiKey: auth.apiKey, headers: auth.headers, signal }
-			);
+			const abortController = new AbortController();
+			const timeoutId = setTimeout(() => {
+				abortController.abort();
+			}, 90000); // 90 seconds timeout per LLM request to prevent infinite hanging
 
-			if (response.stopReason === "aborted") {
-				throw new Error("Generation aborted by user.");
-			}
+			let abortedByCaller = false;
+			const onCallerAbort = () => {
+				abortedByCaller = true;
+				abortController.abort();
+			};
 
-			const textContent = response.content?.find((c: any) => c.type === "text") as { type: "text"; text: string } | undefined;
-			if (textContent && textContent.type === "text") {
-				// Let's print out the exact LLM content or why it failed
-				if (validator(textContent.text)) {
-					return textContent.text;
+			if (signal) {
+				if (signal.aborted) {
+					onCallerAbort();
 				} else {
-					throw new Error(`LLM output did not satisfy validation criteria. Received content length: ${textContent.text.length}. Content peak: ${textContent.text.substring(0, 100).replace(/\n/g, " ")}`);
+					signal.addEventListener("abort", onCallerAbort);
 				}
 			}
-			throw new Error("Invalid output formatting or missing payload elements.");
+
+			try {
+				const response = await complete(
+					ctx.model!,
+					{ systemPrompt, messages: [userMessage] },
+					{ apiKey: auth.apiKey, headers: auth.headers, signal: abortController.signal }
+				);
+
+				if (response.stopReason === "aborted") {
+					throw new Error("Generation aborted by user.");
+				}
+
+				clearTimeout(timeoutId);
+
+				const textContent = response.content?.find((c: any) => c.type === "text") as { type: "text"; text: string } | undefined;
+				if (textContent && textContent.type === "text") {
+					// Let's print out the exact LLM content or why it failed
+					if (validator(textContent.text)) {
+						return textContent.text;
+					} else {
+						throw new Error(`LLM output did not satisfy validation criteria. Received content length: ${textContent.text.length}. Content peak: ${textContent.text.substring(0, 100).replace(/\n/g, " ")}`);
+					}
+				}
+				throw new Error("Invalid output formatting or missing payload elements.");
+			} catch (e: any) {
+				clearTimeout(timeoutId);
+				if (abortController.signal.aborted && !abortedByCaller) {
+					throw new Error("LLM request timed out after 90 seconds.");
+				}
+				throw e;
+			} finally {
+				if (signal) {
+					signal.removeEventListener("abort", onCallerAbort);
+				}
+			}
 		} catch (error: any) {
 			if (attempt === retries) throw error;
 			ctx.ui.notify(`LLM Call attempt ${attempt}/${retries} failed: ${error.message}. Retrying...`, "warning");
@@ -236,29 +269,49 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			// Parse command arguments: /tutorial <url_or_path> [--max-abstractions 10] [--language eng] [--output ./tutorial/<name>]
-			const parsedArgs = args?.trim().split(/\s+/) || [];
-			if (parsedArgs.length === 0 || parsedArgs[0] === "") {
-				ctx.ui.notify("Usage: /tutorial <repo_url_or_local_path> [--max-abstractions 10] [--language english] [--output <path>]", "error");
+			// Parse command arguments: /tutorial <url_or_path> [--max-abstractions 10] [--language eng] [--output ./tutorial/<name>] [--focus <instructions>]
+			const rawTokens = args?.trim().match(/[^\s"']+|"([^"]*)"|'([^']*)'/g) || [];
+			if (rawTokens.length === 0 || rawTokens[0] === "") {
+				ctx.ui.notify("Usage: /tutorial <repo_url_or_local_path> [--max-abstractions 10] [--language english] [--output <path>] [--focus <instructions>]", "error");
 				return;
 			}
 
-			const sourceInput: string = parsedArgs[0];
+			const stripQuotes = (str: string) => {
+				if ((str.startsWith('"') && str.endsWith('"')) || (str.startsWith("'") && str.endsWith("'"))) {
+					return str.slice(1, -1);
+				}
+				return str;
+			};
+
+			const sourceInput: string = stripQuotes(rawTokens[0]);
 			let maxAbstractions = 10;
 			let language = "english";
 			let customOutput: string | undefined;
+			let focusInstructions: string | undefined;
 
-			for (let i = 1; i < parsedArgs.length; i++) {
-				if (parsedArgs[i] === "--max-abstractions" && parsedArgs[i+1]) {
-					maxAbstractions = parseInt(parsedArgs[i+1], 10);
+			const leftoverTokens: string[] = [];
+
+			for (let i = 1; i < rawTokens.length; i++) {
+				const token = rawTokens[i];
+				if (token === "--max-abstractions" && rawTokens[i+1]) {
+					maxAbstractions = parseInt(stripQuotes(rawTokens[i+1]), 10);
 					i++;
-				} else if (parsedArgs[i] === "--language" && parsedArgs[i+1]) {
-					language = parsedArgs[i+1];
+				} else if (token === "--language" && rawTokens[i+1]) {
+					language = stripQuotes(rawTokens[i+1]);
 					i++;
-				} else if (parsedArgs[i] === "--output" && parsedArgs[i+1]) {
-					customOutput = parsedArgs[i+1];
+				} else if (token === "--output" && rawTokens[i+1]) {
+					customOutput = stripQuotes(rawTokens[i+1]);
 					i++;
+				} else if ((token === "--focus" || token === "--theme") && rawTokens[i+1]) {
+					focusInstructions = stripQuotes(rawTokens[i+1]);
+					i++;
+				} else {
+					leftoverTokens.push(stripQuotes(token));
 				}
+			}
+
+			if (leftoverTokens.length > 0 && !focusInstructions) {
+				focusInstructions = leftoverTokens.join(" ");
 			}
 
 			// Force absolute path resolution if customOutput is passed as argument
@@ -356,6 +409,10 @@ export default function (pi: ExtensionAPI) {
 Codebase Context:
 ${fullFilesContext}
 
+${focusInstructions ? `\n--- USER SPECIAL DIRECTION & FOCUS ---\nPlease heavily tailor the selection of concepts to focus specifically on:
+${focusInstructions}
+---------------------------------------\n` : ""}
+
 Analyze the context. Identify the top 5 to ${maxAbstractions} core abstraction concepts to explain to a newcomer.
 IMPORTANT: Generate the \`name\` and \`description\` for each abstraction in **${language}** language. Do NOT use English unless the concept is a code proper noun.
 For each abstraction, provide:
@@ -426,6 +483,10 @@ ${relationshipListing}
 
 Code Snippets:
 ${relationshipFilesContext}
+
+${focusInstructions ? `\n--- USER SPECIAL DIRECTION & FOCUS ---\nEnsure the summary and relationship insights emphasize or keep in mind the user's specific interests:
+${focusInstructions}
+---------------------------------------\n` : ""}
 
 Please generate:
 1. A brief summary of project main functionality in **${language}**, using markdown bold/italic formatting to stress concepts.
@@ -592,6 +653,10 @@ ${previousSummariesText || "This is the first chapter."}
 Related Code Files:
 ${relatedContent || "No specific raw files were mapped to this abstraction."}
 
+${focusInstructions ? `\n--- USER SPECIAL DIRECTION & FOCUS ---\nWhen writing this chapter's explanation, structure, and details, please heavily focus on, align with, or incorporate:
+${focusInstructions}
+---------------------------------------\n` : ""}
+
 Write this Chapter in beautiful, highly educative Markdown utilizing these strict formatting and technical guidelines:
 1. Start with a clean Markdown H1 header: \`# Chapter ${chapterNum}: ${abs.name}\`
 2. Begin with a clear transition explaining how this relates to any previous abstraction (using direct relative file links where useful).
@@ -649,6 +714,9 @@ Provide ONLY the raw Markdown document contents in **${language}**. Do not inclu
 
 					// Index page contents
 					let indexContent = `# Tutorial: ${projectName}\n\n`;
+					if (focusInstructions) {
+						indexContent += `> **Special Focus / Theme:** *${focusInstructions}*\n\n`;
+					}
 					indexContent += `${relationships.summary}\n\n`;
 					indexContent += `**Source Repository:** ${repoUrl}\n\n`;
 					indexContent += "```mermaid\n" + mermaidDiagram + "\n```\n\n";
