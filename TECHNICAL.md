@@ -73,6 +73,12 @@ For the project `{projectName}`:
 Codebase Context:
 {fullFilesContext}
 
+{focusInstructions ? `
+--- USER SPECIAL DIRECTION & FOCUS ---
+Please heavily tailor the selection of concepts to focus specifically on:
+{focusInstructions}
+---------------------------------------` : ""}
+
 Analyze the context. Identify the top 5 to {maxAbstractions} core abstraction concepts to explain to a newcomer.
 IMPORTANT: Generate the `name` and `description` for each abstraction in **{language}** language. Do NOT use English unless the concept is a code proper noun.
 For each abstraction, provide:
@@ -109,6 +115,12 @@ Output ONLY a JSON array of objects inside a single ```json``` code block matchi
 
   Code Snippets:
   {relationshipFilesContext}
+
+  {focusInstructions ? `
+--- USER SPECIAL DIRECTION & FOCUS ---
+Ensure the summary and relationship insights emphasize or keep in mind the user's specific interests:
+{focusInstructions}
+---------------------------------------` : ""}
 
   Please generate:
   1. A brief summary of project main functionality in **{language}**, using markdown bold/italic formatting to stress concepts.
@@ -178,6 +190,12 @@ Context from earlier chapters:
 
 Related Code Files:
 {relatedContent}
+
+{focusInstructions ? `
+--- USER SPECIAL DIRECTION & FOCUS ---
+When writing this chapter's explanation, structure, and details, please heavily focus on, align with, or incorporate:
+{focusInstructions}
+---------------------------------------` : ""}
 
 Write this Chapter in beautiful, highly educative Markdown utilizing these strict formatting and technical guidelines:
 1. Start with a clean Markdown H1 header: `# Chapter {chapterNum}: {abs.name}`

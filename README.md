@@ -73,6 +73,10 @@ Then, execute the `/tutorial` slash-command directly inside the chat interface:
 
 # Generate a tutorial from your current local directory
 /tutorial ./Your_repo --max-abstractions 7 --language Spanish --output ./my_repo/
+
+# Generate a tutorial focusing on a specific topic or theme
+/tutorial ./Your_repo --focus "state management and event sourcing mechanics"
+/tutorial ./Your_repo "how async executors and task queues work under the hood"
 ```
 
 ### Options
@@ -83,6 +87,9 @@ Then, execute the `/tutorial` slash-command directly inside the chat interface:
 | `--max-abstractions <num>` | `10` | Cap of top abstractions identified and explained in chapters. |
 | `--language <name>` | `english` | Output dialect that all explanations and guide texts default to. |
 | `--output <path>` | `./tutorial/<name>` | Custom targeted directory destination to compile output files. |
+| `--focus / --theme <text>` | *None* | Tailors and narrows the identified concepts and generated content to specifically focus on concrete aspects, subsystems, or user interests (e.g. testing, routing, parallel processing). |
+
+> ℹ️ *Tip: You can also simply append your custom focus instructions at the very end of the command without any flags (e.g. `/tutorial ./Your_repo state management`).*
 
 ---
 
