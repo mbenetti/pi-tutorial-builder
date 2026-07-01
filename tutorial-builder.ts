@@ -270,10 +270,21 @@ async function callLlmWithRetry(
 			}
 
 			try {
+				const completeOptions: any = {
+					apiKey: auth.apiKey,
+					headers: auth.headers,
+					signal: abortController.signal,
+				};
+
+				// If model has reasoning enabled, pass reasoningEffort to satisfy endpoints where reasoning is mandatory and cannot be disabled
+				if (ctx.model?.reasoning) {
+					completeOptions.reasoningEffort = "medium";
+				}
+
 				const response = await complete(
 					ctx.model!,
 					{ systemPrompt, messages: [userMessage] },
-					{ apiKey: auth.apiKey, headers: auth.headers, signal: abortController.signal }
+					completeOptions
 				);
 
 				if (response.stopReason === "aborted") {
