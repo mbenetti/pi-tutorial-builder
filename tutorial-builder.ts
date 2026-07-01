@@ -3,7 +3,6 @@ declare const global: any;
 
 import { complete, type UserMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { BorderedLoader } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -54,20 +53,26 @@ interface ChapterFilename {
 	filename: string;
 }
 
+function globToRegex(pattern: string): RegExp {
+	let p = pattern.replace(/\\/g, "/");
+	p = p.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+	p = p.replace(/\*\*\//g, "__GLOBSTAR_SLASH__");
+	p = p.replace(/\*\*/g, "__GLOBSTAR__");
+	p = p.replace(/\*/g, "__STAR__");
+	p = p.replace(/\?/g, "__QUESTION__");
+
+	p = p.replace(/__GLOBSTAR_SLASH__/g, "(?:.*/)?");
+	p = p.replace(/__GLOBSTAR__/g, ".*");
+	p = p.replace(/__STAR__/g, "[^/]*");
+	p = p.replace(/__QUESTION__/g, "[^/]");
+	return new RegExp("^" + p + "$", "i");
+}
+
 // Simple wildcard match helper simulating fnmatch / pathspec
 function matchesPattern(fileRelativePath: string, patterns: string[]): boolean {
 	const normalizedPath = fileRelativePath.replace(/\\/g, "/");
 	for (const pattern of patterns) {
-		const normalizedPattern = pattern.replace(/\\/g, "/");
-		// Translate wildcard pattern to regex
-		const regexStr = "^" + normalizedPattern
-			.replace(/\.\./g, "__DOTDOT__") // Keep special sequences
-			.replace(/\./g, "\\.")
-			.replace(/\*\*/g, ".*")
-			.replace(/\*/g, "[^/]*")
-			.replace(/\?/g, "[^/]")
-			.replace(/__DOTDOT__/g, "..") + "$";
-		const regex = new RegExp(regexStr, "i");
+		const regex = globToRegex(pattern);
 		if (regex.test(normalizedPath) || regex.test(path.basename(normalizedPath))) {
 			return true;
 		}
@@ -159,6 +164,59 @@ function crawlLocalDirectory(dirPath: string): SourceFile[] {
 	return filesList;
 }
 
+// Ultimate robust text extraction helper from LLM response
+function extractTextFromResponse(response: any): string | null {
+	if (!response) return null;
+	if (typeof response === "string") return response;
+	if (typeof response.text === "string" && response.text.trim()) return response.text;
+	if (typeof response.content === "string" && response.content.trim()) return response.content;
+
+	if (Array.isArray(response.content)) {
+		// 1. Try finding and joining all text blocks
+		const textBlocks = response.content.filter((c: any) => c && c.type === "text" && typeof c.text === "string");
+		if (textBlocks.length > 0) {
+			return textBlocks.map((c: any) => c.text).join("\n");
+		}
+
+		// 2. Try finding any block with a .text property (fallback if type isn't "text")
+		const anyTextBlocks = response.content.filter((c: any) => c && typeof c.text === "string");
+		if (anyTextBlocks.length > 0) {
+			return anyTextBlocks.map((c: any) => c.text).join("\n");
+		}
+
+		// 3. Try finding any block with .thinking (fallback if some model returned thinking as only output)
+		const thinkingBlocks = response.content.filter((c: any) => c && c.type === "thinking" && typeof c.thinking === "string");
+		if (thinkingBlocks.length > 0) {
+			return thinkingBlocks.map((c: any) => c.thinking).join("\n");
+		}
+
+		// 4. Try joining any string elements in the array
+		const stringElements = response.content.filter((c: any) => typeof c === "string");
+		if (stringElements.length > 0) {
+			return stringElements.join("\n");
+		}
+	}
+
+	if (response.message) {
+		const msgText = extractTextFromResponse(response.message);
+		if (msgText) return msgText;
+	}
+
+	// 5. Fallback - check choices or content nested fields
+	if (Array.isArray(response.choices) && response.choices.length > 0) {
+		const firstChoice = response.choices[0];
+		if (firstChoice) {
+			if (typeof firstChoice.text === "string") return firstChoice.text;
+			if (firstChoice.message) {
+				const nestedMsgText = extractTextFromResponse(firstChoice.message);
+				if (nestedMsgText) return nestedMsgText;
+			}
+		}
+	}
+
+	return null;
+}
+
 // Shell command LLM execution with robust retries
 async function callLlmWithRetry(
 	ctx: ExtensionCommandContext,
@@ -171,7 +229,7 @@ async function callLlmWithRetry(
 ): Promise<string> {
 	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model!);
 	if (!auth.ok || !auth.apiKey) {
-		throw new Error(auth.ok ? `No API key for ${ctx.model!.provider}` : auth.error);
+		throw new Error(auth.ok ? `No API key for ${ctx.model!.provider}` : (auth as any).error);
 	}
 
 	for (let attempt = 1; attempt <= retries; attempt++) {
@@ -224,17 +282,18 @@ async function callLlmWithRetry(
 
 				clearTimeout(timeoutId);
 
-				const textContent = response.content?.find((c: any) => c.type === "text") as { type: "text"; text: string } | undefined;
-				if (textContent && textContent.type === "text") {
-					// Let's print out the exact LLM content or why it failed
-					if (validator(textContent.text)) {
-						return textContent.text;
+				console.log("[LLM RESPONSE DEBUG]", JSON.stringify(response).substring(0, 1000));
+				const responseText = extractTextFromResponse(response);
+				if (responseText !== null) {
+					if (validator(responseText)) {
+						return responseText;
 					} else {
-						throw new Error(`LLM output did not satisfy validation criteria. Received content length: ${textContent.text.length}. Content peak: ${textContent.text.substring(0, 100).replace(/\n/g, " ")}`);
+						throw new Error(`LLM output did not satisfy validation criteria. Received content length: ${responseText.length}. Content peak: ${responseText.substring(0, 100).replace(/\n/g, " ")}`);
 					}
 				}
 				throw new Error("Invalid output formatting or missing payload elements.");
 			} catch (e: any) {
+				console.error("[LLM ERROR DEBUG]", e.stack || e);
 				clearTimeout(timeoutId);
 				if (abortController.signal.aborted && !abortedByCaller) {
 					throw new Error("LLM request timed out after 90 seconds.");
@@ -259,7 +318,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerCommand("tutorial", {
 		description: "Generate a comprehensive tutorial from a codebase or remote repo",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
-			if (ctx.mode !== "tui") {
+			if (ctx.mode !== "tui" && ctx.mode !== "agent" && ctx.mode !== "text") {
 				ctx.ui.notify("Tutorial builder command requires interactive TUI mode.", "error");
 				return;
 			}
@@ -753,6 +812,7 @@ Provide ONLY the raw Markdown document contents in **${language}**. Do not inclu
 
 			if (ctx.mode === "tui") {
 				// Generate tutorial process inside BorderedLoader to cleanly block and present statuses
+				const { BorderedLoader } = await import("@earendil-works/pi-coding-agent");
 				await ctx.ui.custom<void>((tui: any, theme: any, _kb: any, done: (val?: void) => void) => {
 					const loader = new BorderedLoader(tui, theme, "Step 1/6: Setting up environment", { height: 12 });
 					
