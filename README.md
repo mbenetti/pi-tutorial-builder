@@ -68,13 +68,8 @@ pi
 Then, execute the `/tutorial` slash-command directly inside the chat interface:
 
 ```text
-# Generate a tutorial from a remote public GitHub repository
 /tutorial https://github.com/mbenetti/pi-dynamic-workflow.git --max-abstractions 5 --language english
-
-# Generate a tutorial from your current local directory
 /tutorial ./Your_repo --max-abstractions 7 --language Spanish --output ./my_repo/
-
-# Generate a tutorial focusing on a specific topic or theme
 /tutorial ./Your_repo --focus "state management and event sourcing mechanics"
 /tutorial ./Your_repo "how async executors and task queues work under the hood"
 ```
