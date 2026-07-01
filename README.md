@@ -69,8 +69,17 @@ Then, execute the `/tutorial` slash-command directly inside the chat interface:
 
 ```text
 /tutorial https://github.com/mbenetti/pi-dynamic-workflow.git --max-abstractions 5 --language english
+```
+
+```text
 /tutorial ./Your_repo --max-abstractions 7 --language Spanish --output ./my_repo/
+```
+
+```text
 /tutorial ./Your_repo --focus "state management and event sourcing mechanics"
+```
+
+```text
 /tutorial ./Your_repo "how async executors and task queues work under the hood"
 ```
 
