@@ -222,7 +222,6 @@ async function callLlmWithRetry(ctx, systemPrompt, prompt, validator, retries = 
                     throw new Error("Generation aborted by user.");
                 }
                 clearTimeout(timeoutId);
-                console.log("[LLM RESPONSE DEBUG]", JSON.stringify(response).substring(0, 1000));
                 const responseText = extractTextFromResponse(response);
                 if (responseText !== null) {
                     if (validator(responseText)) {
@@ -235,7 +234,6 @@ async function callLlmWithRetry(ctx, systemPrompt, prompt, validator, retries = 
                 throw new Error("Invalid output formatting or missing payload elements.");
             }
             catch (e) {
-                console.error("[LLM ERROR DEBUG]", e.stack || e);
                 clearTimeout(timeoutId);
                 if (abortController.signal.aborted && !abortedByCaller) {
                     throw new Error("LLM request timed out after 90 seconds.");

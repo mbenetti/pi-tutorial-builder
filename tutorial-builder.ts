@@ -293,7 +293,6 @@ async function callLlmWithRetry(
 
 				clearTimeout(timeoutId);
 
-				console.log("[LLM RESPONSE DEBUG]", JSON.stringify(response).substring(0, 1000));
 				const responseText = extractTextFromResponse(response);
 				if (responseText !== null) {
 					if (validator(responseText)) {
@@ -304,7 +303,6 @@ async function callLlmWithRetry(
 				}
 				throw new Error("Invalid output formatting or missing payload elements.");
 			} catch (e: any) {
-				console.error("[LLM ERROR DEBUG]", e.stack || e);
 				clearTimeout(timeoutId);
 				if (abortController.signal.aborted && !abortedByCaller) {
 					throw new Error("LLM request timed out after 90 seconds.");
